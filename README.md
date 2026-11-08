@@ -2,7 +2,7 @@
 
 A fireworks sky that runs in your browser. Tap or drag to launch shells over a night harbour with a skyline, moon and water reflections.
 
-**Live demo:** https://YOUR-USERNAME.github.io/fireworks/
+**Live demo:** https://samiran357.github.io/Skyburst_1.2.0/
 
 ## Features
 
