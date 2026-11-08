@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=JetBrains+Mono:wght@400;500&family=Syne:wght@700;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: full-bleed night-sky stage (sky, skyline, harbour water, glowing canvas on top);
    slim header up top, glass control dock at the bottom. Single deliberate night palette. */
@@ -79,7 +79,19 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .dock{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px 30px;padding:14px 18px;max-height:none;overflow:visible}
   .chips{flex-wrap:wrap;overflow:visible}
 }
-@media (prefers-reduced-motion:reduce){#stars i{animation:none;opacity:.7}}
+.tools{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+@media (min-width:600px){.tools{flex-direction:row;align-items:center;gap:10px}}
+.play{display:inline-flex;align-items:center;gap:9px;font:700 11px/1 var(--font-display);letter-spacing:.1em;text-transform:uppercase;
+  color:#1a1204;background:linear-gradient(135deg,#ffe3a1,#ffb04a 55%,#ff7a45);border:0;border-radius:999px;
+  padding:11px 16px 11px 13px;cursor:pointer;white-space:nowrap;
+  box-shadow:0 0 0 0 rgba(255,176,74,.5),0 6px 22px rgba(255,122,69,.35);animation:glowp 2.4s ease-in-out infinite;
+  transition:transform .15s,filter .15s}
+.play:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.play .lan{width:11px;height:14px;display:inline-block;clip-path:polygon(22% 0,78% 0,100% 100%,0 100%);
+  background:radial-gradient(circle at 50% 72%,#fff4c8 0 24%,transparent 26%),#1a1204}
+@keyframes glowp{0%,100%{box-shadow:0 0 0 0 rgba(255,176,74,.5),0 6px 22px rgba(255,122,69,.35)}50%{box-shadow:0 0 0 9px rgba(255,176,74,0),0 6px 26px rgba(255,122,69,.5)}}
+#gameHost{position:fixed;inset:0;z-index:100}
+@media (prefers-reduced-motion:reduce){#stars i{animation:none;opacity:.7}.play{animation:none}}
 </style>
 
 <canvas id="bg"></canvas>
@@ -92,7 +104,10 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
     <h1>Skyburst</h1>
     <div class="stats"><span>Shells<b id="sShells">0</b></span><span>Sparks<b id="sSparks">0</b></span></div>
   </div>
-  <button class="ghost" id="uiToggle" type="button">Hide controls</button>
+  <div class="tools">
+    <button class="play" id="playGame" type="button"><span class="lan" aria-hidden="true"></span>Play Driftwish</button>
+    <button class="ghost" id="uiToggle" type="button">Hide controls</button>
+  </div>
 </header>
 
 <div id="hint">
@@ -108,6 +123,122 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   <div class="group"><span class="label">Show</span><div class="chips" id="toggles"></div></div>
 </section>
 
+<template id="gameTpl"><style>
+/* Layout: full-bleed night-sky canvas; slim HUD on top (level, flame, stars, controls);
+   shell selector dock at the bottom; centered card for start / win / lose. One deliberate night palette. */
+:host{
+  --sky:#05050f;
+  --ink:#efecff;
+  --muted:#aaa6d6;
+  --gold:#ffd27a;
+  --gold-ink:#1a1204;
+  --ember:#ff7a45;
+  --cyan:#4fd1ff;
+  --lav:#c9b8ff;
+  --panel:rgba(10,9,30,.74);
+  --line:rgba(255,255,255,.16);
+  --font-display:'Syne','Arial Black',system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+.stage{
+  position:fixed;inset:0;box-sizing:border-box;
+  background:var(--sky);color:var(--ink);overflow:hidden;
+  font:14px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0;
+  -webkit-user-select:none;user-select:none;
+}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+
+.top{position:fixed;z-index:5;top:calc(env(safe-area-inset-top,0px) + 12px);
+  left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;pointer-events:none}
+.top>*{pointer-events:auto}
+.brand{flex:1 1 auto;min-width:0}
+h1{margin:0;font:800 16px/1 var(--font-display);letter-spacing:.04em;text-transform:uppercase}
+#lvl{display:block;margin-top:6px;font:500 11px/1 var(--font-mono);color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.meter{order:9;flex:1 1 100%;min-width:0;display:flex;align-items:center;gap:10px}
+.meter .bar{flex:1 1 auto}
+.meter span{font:500 10px/1 var(--font-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.bar{height:8px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden}
+#flame{height:100%;width:100%;border-radius:4px;background:linear-gradient(90deg,#ff5a2a,#ffb04a,#ffe6a0);transition:width .12s linear}
+.stars{flex:0 0 auto;font:500 13px/1 var(--font-mono);color:var(--gold);font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.icon{flex:0 0 auto;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+  font:500 16px/1 var(--font-mono);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:50%;cursor:pointer;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.icon:hover{border-color:var(--gold)}
+.icon[aria-pressed="false"]{color:var(--muted);text-decoration:line-through}
+
+.dock{position:fixed;z-index:5;
+  left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));
+  bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+  display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+#tip{max-width:520px;text-align:center;font:400 12px/1.5 var(--font-mono);color:var(--muted);letter-spacing:.02em;
+  text-shadow:0 1px 8px #000;transition:opacity .4s}
+.shells{display:flex;gap:8px;width:100%;max-width:520px;pointer-events:auto}
+.shell{flex:1 1 0;min-width:0;display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"dot nm n" "dot ds n";
+  align-items:center;column-gap:9px;text-align:left;padding:10px 12px;color:var(--ink);cursor:pointer;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.shell .dot{grid-area:dot;width:14px;height:14px;border-radius:50%;background:var(--c);box-shadow:0 0 12px var(--c)}
+.shell .nm{grid-area:nm;font:700 13px/1.1 var(--font-display);letter-spacing:.03em}
+.shell small{grid-area:ds;font:400 10px/1.2 var(--font-mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shell b{grid-area:n;font:500 18px/1 var(--font-mono);font-variant-numeric:tabular-nums}
+.shell[aria-pressed="true"]{border-color:var(--c);box-shadow:0 0 0 1px var(--c) inset}
+.shell[hidden]{display:none}
+.shell.empty{opacity:.4}
+.shell.shake{animation:sh .25s}
+@keyframes sh{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+.card{position:fixed;z-index:6;left:50%;top:44%;transform:translate(-50%,-50%);
+  width:min(380px,calc(100% - 32px));padding:24px 22px 20px;text-align:center;
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.card h2{margin:0;font:800 clamp(26px,7vw,36px)/1.05 var(--font-display);letter-spacing:-.01em;text-wrap:balance}
+.card p{margin:12px 0 0;font:400 13px/1.6 var(--font-mono);color:var(--muted);text-wrap:pretty}
+.card .row{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.btn{font:700 14px/1 var(--font-display);letter-spacing:.03em;padding:13px 20px;border-radius:12px;cursor:pointer;
+  color:var(--ink);background:transparent;border:1px solid var(--line)}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--gold);color:var(--gold-ink);border-color:var(--gold)}
+.btn.primary:hover{filter:brightness(1.08)}
+.big-stars{margin-top:10px;font:500 28px/1 var(--font-mono);color:var(--gold);letter-spacing:.2em}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+[hidden]{display:none!important}
+</style><div class="stage">
+
+<canvas id="c" aria-label="Driftwish game board. Press, aim and release to fire a shell."></canvas>
+
+<header class="top">
+  <div class="brand"><h1>Driftwish</h1><span id="lvl">Level 1</span></div>
+  <div class="meter"><span>Flame</span><div class="bar"><div id="flame"></div></div></div>
+  <div class="stars" id="stars" title="Stars collected">&#9733; 0/3</div>
+  <button class="icon" id="snd" type="button" aria-pressed="true" aria-label="Sound">&#9834;</button>
+  <button class="icon" id="rst" type="button" aria-label="Restart level">&#8635;</button>
+  <button class="icon" id="exit" type="button" aria-label="Back to the fireworks">&#10005;</button>
+</header>
+
+<div class="dock">
+  <div id="tip"></div>
+  <div class="shells" id="shells" role="group" aria-label="Shell type">
+    <button class="shell" type="button" data-type="push" aria-pressed="true" style="--c:var(--ember)"><i class="dot"></i><span class="nm">Push</span><small>shoves</small><b id="n-push">0</b></button>
+    <button class="shell" type="button" data-type="pull" aria-pressed="false" style="--c:var(--cyan)" hidden><i class="dot"></i><span class="nm">Pull</span><small>pulls in</small><b id="n-pull">0</b></button>
+    <button class="shell" type="button" data-type="brake" aria-pressed="false" style="--c:var(--lav)" hidden><i class="dot"></i><span class="nm">Calm</span><small>stops it dead</small><b id="n-brake">0</b></button>
+  </div>
+</div>
+
+<div class="card" id="card" hidden>
+  <h2 id="cTitle"></h2>
+  <p id="cText"></p>
+  <div class="big-stars" id="cStars" hidden></div>
+  <div class="row" id="cBtns"></div>
+</div>
+
+</div></template>
+<div id="gameHost" style="display:none"></div>
 <script>
 (() => {
 'use strict';
@@ -276,6 +407,8 @@ function resize(){
   drawBg(); makeStars();
 }
 
+let paused = false;
+
 /* ---------- sound ---------- */
 const sfx = {
   ctx:null, master:null, nb:null,
@@ -428,6 +561,7 @@ function burst(x, y, shape){
 }
 
 function launch(tx, ty, shape){
+  if (paused) return;
   ty = clamp(ty, H*.07, water-90);
   tx = clamp(tx, 12, W-12);
   const sx = clamp(tx + rand(-.07,.07)*W, 12, W-12);
@@ -535,6 +669,7 @@ function drawLanterns(dt, raw){
 let last = performance.now(), autoT = 500, statT = 0;
 function frame(now){
   const raw = Math.min(50, now-last); last = now;
+  if (paused){ requestAnimationFrame(frame); return; }
   const dt = raw/16.667 * (state.slow ? .35 : 1);
 
   // timed queue
@@ -690,6 +825,7 @@ function setUI(off){
 $('#uiToggle').addEventListener('click', () => setUI(!document.body.classList.contains('ui-off')));
 
 addEventListener('keydown', e => {
+  if (window.__gameOpen) return;
   if (e.target && e.target.tagName === 'BUTTON' && e.code === 'Space') return;
   if (e.code === 'Space'){ e.preventDefault(); firstTouch(); finale(); }
   else if (e.key === 'h' || e.key === 'H') setUI(!document.body.classList.contains('ui-off'));
@@ -701,6 +837,8 @@ addEventListener('keydown', e => {
   }
 });
 
+$('#playGame').addEventListener('click', () => { firstTouch(); if (window.__openDriftwish) window.__openDriftwish(); });
+window.__skyburst = { pause(p){ paused = p; if (p){ queue.length = 0; dragging = false; } } };
 addEventListener('resize', resize);
 resize();
 seedLanterns();
@@ -709,5 +847,667 @@ requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
 // opening shells so the sky is alive on load
 later(250, () => launch(W*.34, H*.26, 'peony'));
 later(900, () => launch(W*.66, H*.2, 'ring'));
+})();
+</script>
+<script>
+function mountDriftwish(root, onExit){
+'use strict';
+const $ = s => root.querySelector(s);
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const hyp = Math.hypot;
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+const cv = $('#c'), ctx = cv.getContext('2d');
+const bgc = document.createElement('canvas'), bgx = bgc.getContext('2d');
+let W = 0, H = 0, dpr = 1, water = 0, scale = 1;
+
+const TYPES = {
+  push:  { name:'Push',  hue:18,  col:'255,122,69' },
+  pull:  { name:'Pull',  hue:197, col:'79,209,255' },
+  brake: { name:'Calm',  hue:262, col:'201,184,255' }
+};
+
+/* ---------- game state ---------- */
+const G = {
+  mode:'ready', level:1, flame:100, t:0, clock:0,
+  L:{ x:0, y:0, vx:0, vy:0, out:false, s:24, grow:1 },
+  clouds:[], pickups:[], moon:{ x:0, y:0, r:34 },
+  shells:{ push:0, pull:0, brake:0 }, sel:'push',
+  pending:[], shocks:[], parts:[], glows:[], streaks:[],
+  collected:0, outT:0, aim:null, amp:.2, ph:0, R:170, grace:0
+};
+let epoch = 0, best = 1;
+try { best = Math.max(1, Number(localStorage.getItem('driftwish-best')) || 1); } catch(_) {}
+
+function later(ms, fn){ const e = epoch; setTimeout(() => { if (e === epoch) fn(); }, ms); }
+
+/* ---------- sound ---------- */
+const sfx = {
+  ctx:null, on:true, nb:null,
+  init(){
+    if (this.ctx) return;
+    try{
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      this.ctx = new AC();
+      const m = this.ctx.createGain(); m.gain.value = .7;
+      const comp = this.ctx.createDynamicsCompressor(); m.connect(comp); comp.connect(this.ctx.destination);
+      this.out = m;
+      const len = this.ctx.sampleRate, b = this.ctx.createBuffer(1,len,this.ctx.sampleRate), d = b.getChannelData(0);
+      for (let i=0;i<len;i++) d[i] = Math.random()*2-1; this.nb = b;
+    }catch(e){ this.ctx = null; }
+  },
+  resume(){ if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{}); },
+  tone(f0,f1,dur,vol,type,delay){
+    if (!this.on || !this.ctx) return; const c = this.ctx, t = c.currentTime + (delay||0);
+    const o = c.createOscillator(); o.type = type || 'sine';
+    o.frequency.setValueAtTime(f0,t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    const g = c.createGain(); g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.012); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g); g.connect(this.out); o.start(t); o.stop(t+dur+.05);
+  },
+  noise(dur,type,f0,f1,vol,delay){
+    if (!this.on || !this.ctx) return; const c = this.ctx, t = c.currentTime + (delay||0);
+    const s = c.createBufferSource(); s.buffer = this.nb;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0,t); if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    const g = c.createGain(); g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(vol,t+.03); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    s.connect(f); f.connect(g); g.connect(this.out); s.start(t, Math.random()*.4); s.stop(t+dur+.05);
+  },
+  whoosh(){ this.noise(.3,'bandpass',500,2200,.05); },
+  boom(type){
+    if (type === 'pull'){ this.tone(260,70,.45,.2,'sine'); this.noise(.4,'bandpass',2200,400,.08); }
+    else if (type === 'brake'){ this.tone(520,320,.5,.14,'triangle'); this.noise(.5,'lowpass',900,200,.1); }
+    else { this.tone(120,38,.6,.4,'sine'); this.noise(.7,'lowpass',900,160,.3); }
+  },
+  chime(){ this.tone(988,988,.25,.12,'sine'); this.tone(1480,1480,.35,.1,'sine',.07); },
+  splash(){ this.noise(.5,'lowpass',1800,300,.2); },
+  out(){ this.tone(220,80,.7,.18,'sawtooth'); },
+  win(){ [523,659,784,1047,1319].forEach((f,i) => this.tone(f,f,.5,.13,'triangle',i*.11)); }
+};
+
+/* ---------- layout and backdrop ---------- */
+function drawBgCache(){
+  const c = bgx; c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,W,H);
+  let g = c.createLinearGradient(0,0,0,water);
+  g.addColorStop(0,'#03030c'); g.addColorStop(.55,'#0b0a2c'); g.addColorStop(.86,'#2a1046'); g.addColorStop(1,'#5b2257');
+  c.fillStyle = g; c.fillRect(0,0,W,water);
+  const r = mulberry(42);
+  for (let i=0;i<110;i++){
+    const x = r()*W, y = Math.pow(r(),1.3)*water*.85, big = r()<.12;
+    c.fillStyle = `rgba(225,230,255,${.25+r()*.6})`; c.fillRect(x,y,big?2:1.2,big?2:1.2);
+  }
+  const k = H/800;
+  c.fillStyle = '#12092a';
+  let x = -8; const r2 = mulberry(8);
+  while (x < W+8){ const w = 24+r2()*46, h = (24+r2()*80)*k; c.fillRect(x,water-h,w,h+1); x += w+r2()*3; }
+  g = c.createLinearGradient(0,water,0,H);
+  g.addColorStop(0,'#3a1840'); g.addColorStop(.35,'#160a30'); g.addColorStop(1,'#04040e');
+  c.fillStyle = g; c.fillRect(0,water,W,H-water);
+  const r3 = mulberry(5);
+  for (let i=0;i<50;i++){
+    const y = water+4+Math.pow(r3(),1.4)*(H-water-4), xx = r3()*W, len = 12+r3()*60;
+    c.fillStyle = `rgba(200,210,255,${.03+r3()*.06})`; c.fillRect(xx,y,len,1);
+  }
+  c.fillStyle = 'rgba(255,190,230,.28)'; c.fillRect(0,water,W,1);
+}
+
+function layout(){
+  const pw = W, ph = H;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  water = Math.round(H*.88);
+  scale = clamp(Math.min(W, H*.9)/620, .7, 1.35);
+  G.R = clamp(Math.min(W,H)*.27, 120, 220);
+  for (const c of [cv, bgc]){ c.width = Math.round(W*dpr); c.height = Math.round(H*dpr); }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  drawBgCache();
+  if (pw && (Math.abs(pw-W)/pw > .25 || Math.abs(ph-H)/ph > .25)) startLevel(G.level, G.mode === 'ready');
+}
+
+/* ---------- levels ---------- */
+function windAt(y, t){
+  return G.amp*(Math.sin(y*.011 + t*.55 + G.ph)*.85 + .4*Math.sin(t*.23 + G.ph*2));
+}
+
+const TIPS = {
+  1:'Press, aim, release. The blast shoves the lantern away from it. Reach the moon.',
+  2:'Storm clouds snuff the flame. Blast them away or steer around them.',
+  3:'Blue Pull shells draw the lantern toward the burst.',
+  5:'Silver Calm shells kill the lantern’s speed inside the ring.'
+};
+
+function startLevel(n, ready){
+  epoch++;
+  G.level = n; G.t = 0; G.flame = 100; G.collected = 0; G.outT = 0; G.aim = null; G.grace = 70;
+  G.pending = []; G.shocks = []; G.parts = []; G.glows = [];
+  hideCard();
+  const r = mulberry(n*7919 + 13);
+  G.amp = clamp(.15 + (n-1)*.11, .15, 1.15); G.ph = r()*TAU;
+  G.shells = { push: n === 1 ? 8 : 7, pull: n >= 3 ? 3 : 0, brake: n >= 5 ? 2 : 0 };
+  G.sel = 'push';
+
+  const sx = W*(.18 + .64*r()), sy = water - 70;
+  Object.assign(G.L, { x:sx, y:sy, vx:0, vy:0, out:false, s:24*scale, grow:1 });
+
+  let mx = W*.5; for (let i=0;i<30;i++){ mx = W*(.14 + .72*r()); if (Math.abs(mx-sx) > W*.3) break; }
+  const my = Math.max(132, H*(.12 + .1*r()));
+  G.moon = { x:mx, y:my, r:34*scale };
+
+  G.clouds = [];
+  const nc = n < 2 ? 0 : clamp(Math.floor(n*.75), 1, 7);
+  for (let i=0, tries=0; i<nc && tries<80; tries++){
+    const cr = (40 + r()*34)*scale, cx = W*(.1 + .8*r()), cy = H*(.26 + .38*r());
+    if (hyp(cx-sx,cy-sy) < cr+130 || hyp(cx-mx,cy-my) < cr+100) continue;
+    const puffs = []; const pn = 4 + ((r()*3)|0);
+    for (let k=0;k<pn;k++){ const a = r()*TAU, d = r()*cr*.55; puffs.push([Math.cos(a)*d, Math.sin(a)*d*.6, cr*(.45+r()*.3)]); }
+    G.clouds.push({ x:cx, y:cy, r:cr, vx:0, vy:0, puffs, flash:r()*4, id:i });
+    i++;
+  }
+
+  G.pickups = [];
+  for (let i=1;i<=3;i++){
+    const f = i/4;
+    G.pickups.push({
+      x: clamp(lerp(sx,mx,f) + (r()-.5)*W*.3, 30, W-30),
+      y: clamp(lerp(sy,my,f) + (r()-.5)*H*.14, 118, water-110),
+      got:false, ph:r()*TAU
+    });
+  }
+
+  G.streaks = [];
+  for (let i=0;i<34;i++) G.streaks.push({ x:Math.random()*W, y:rand(H*.12, water-20), len:rand(24,70), sp:rand(.7,1.4) });
+
+  G.mode = ready ? 'ready' : 'play';
+  $('#tip').textContent = TIPS[n] || (n > 5 ? 'Wind is shown by the pale streaks. Read it before you fire.' : '');
+  $('#tip').style.opacity = 1;
+  syncHUD();
+  if (ready) showStart();
+}
+
+/* ---------- cards and HUD ---------- */
+function showCard(title, text, btns, stars){
+  $('#cTitle').textContent = title; $('#cText').textContent = text;
+  const sEl = $('#cStars');
+  if (stars === undefined){ sEl.hidden = true; }
+  else { sEl.hidden = false; sEl.textContent = '★'.repeat(stars) + '☆'.repeat(3-stars); sEl.setAttribute('aria-label', stars + ' of 3 stars'); }
+  const row = $('#cBtns'); row.textContent = '';
+  btns.forEach(b => {
+    const el = document.createElement('button'); el.type = 'button'; el.className = 'btn' + (b.primary ? ' primary' : '');
+    el.textContent = b.label; el.addEventListener('click', () => { sfx.init(); sfx.resume(); b.fn(); });
+    row.appendChild(el);
+  });
+  $('#card').hidden = false;
+  const p = row.querySelector('.primary'); if (p) p.focus({ preventScroll:true });
+}
+function hideCard(){ $('#card').hidden = true; }
+
+function showStart(){
+  const btns = [{ label:'Light the lantern', primary:true, fn:() => startLevel(1) }];
+  if (best > 1) btns.push({ label:'Continue at level ' + best, fn:() => startLevel(best) });
+  showCard('Driftwish', 'You cannot touch the lantern. You can only fire shells that blast the air around it. Carry the wish to the moon.', btns);
+}
+
+function syncHUD(){
+  $('#lvl').textContent = 'Level ' + G.level;
+  $('#flame').style.width = clamp(G.flame,0,100) + '%';
+  $('#stars').textContent = '★ ' + G.collected + '/3';
+  const unlocked = { push:true, pull:G.level >= 3, brake:G.level >= 5 };
+  root.querySelectorAll('.shell').forEach(b => {
+    const t = b.dataset.type; b.hidden = !unlocked[t];
+    $('#n-' + t).textContent = G.shells[t];
+    b.classList.toggle('empty', G.shells[t] <= 0);
+    b.setAttribute('aria-pressed', String(G.sel === t));
+  });
+}
+
+/* ---------- effects ---------- */
+function spark(x,y,vx,vy,h,s,l,o){
+  if (G.parts.length > 2600) return; o = o || {};
+  G.parts.push({ x, y, px:x, py:y, vx, vy, h, s, l, life:1, decay:o.decay ?? .02, drag:o.drag ?? .96, g:o.g ?? .03, size:o.size ?? 2 });
+}
+function addGlow(x,y,r,col,a,decay){ G.glows.push({ x, y, r, col, a, decay:decay ?? .05 }); }
+
+function hslRgb(h){ const sa = .9, l = .6, a = sa*Math.min(l,1-l); const f = n => { const k = (n + h/30) % 12; return Math.round(255*(l - a*Math.max(-1, Math.min(k-3, 9-k, 1)))); }; return `rgb(${f(0)},${f(8)},${f(4)})`; }
+
+function celebrate(x,y){
+  const h = rand(0,360), n = 90;
+  for (let i=0;i<n;i++){
+    const z = Math.random()*2-1, a = Math.random()*TAU, rr = Math.sqrt(1-z*z), sp = 5.2*scale*rand(.9,1.02);
+    spark(x,y,Math.cos(a)*rr*sp,Math.sin(a)*rr*sp,(h + (i%2)*40)%360,95,64,{ decay:rand(.011,.016), drag:.965, g:.045 });
+  }
+  addGlow(x,y,Math.min(W,H)*.4,hslRgb(h),.38,.04);
+  sfx.boom('push');
+}
+
+/* ---------- shells ---------- */
+function fire(x, y){
+  const t = G.sel;
+  if (G.shells[t] <= 0) return;
+  y = Math.min(y, water-24); x = clamp(x, 8, W-8);
+  G.shells[t]--;
+  G.pending.push({ x, y, type:t, t:0, dur:.28 });
+  sfx.whoosh();
+  if (G.shells[t] <= 0){ const nx = ['push','pull','brake'].find(k => G.shells[k] > 0); if (nx) G.sel = nx; }
+  $('#tip').style.opacity = 0;
+  syncHUD();
+}
+
+function detonate(p){
+  const R = G.R, T = TYPES[p.type];
+  G.shocks.push({ x:p.x, y:p.y, type:p.type, r:p.type === 'pull' ? R : 0, R, hitL:false, hitC:new Set() });
+  sfx.boom(p.type);
+  if (p.type === 'push'){
+    for (let i=0;i<70;i++){ const a = Math.random()*TAU, sp = rand(2,6.4)*scale; spark(p.x,p.y,Math.cos(a)*sp,Math.sin(a)*sp,rand(10,46),100,60,{ decay:rand(.02,.034) }); }
+    addGlow(p.x,p.y,R*1.2,`rgb(${T.col})`,.4);
+  } else if (p.type === 'pull'){
+    for (let i=0;i<64;i++){ const a = Math.random()*TAU, d = R*rand(.7,.95); spark(p.x+Math.cos(a)*d,p.y+Math.sin(a)*d,-Math.cos(a)*d/16,-Math.sin(a)*d/16,rand(185,205),90,66,{ decay:.045, drag:.97, g:0 }); }
+    addGlow(p.x,p.y,R,`rgb(${T.col})`,.3);
+  } else {
+    for (let i=0;i<48;i++){ const a = i/48*TAU, sp = 3*scale; spark(p.x,p.y,Math.cos(a)*sp,Math.sin(a)*sp,262,70,82,{ decay:.03, drag:.95, g:0 }); }
+    addGlow(p.x,p.y,R,`rgb(${T.col})`,.3);
+  }
+}
+
+// the velocity change a shell applies to the lantern at its current position
+function impulse(type, cx, cy, L){
+  const R = G.R, dx = L.x-cx, dy = L.y-cy, d = hyp(dx,dy);
+  if (d >= R) return null;
+  const f = 1 - d/R;
+  if (type === 'push'){
+    let ux, uy;
+    if (d < 8){ ux = 0; uy = -1; } else { ux = dx/d; uy = dy/d; }
+    const m = 8.4*Math.pow(f,1.1) + 1.2;
+    return { dvx:ux*m, dvy:uy*m };
+  }
+  if (type === 'pull'){
+    if (d < 4) return { dvx:0, dvy:0 };
+    const m = Math.min(d*.085, 5.6*f + .8);
+    return { dvx:-dx/d*m, dvy:-dy/d*m };
+  }
+  const k = .1 + .9*(d/R);
+  return { dvx:-L.vx*(1-k), dvy:-L.vy*(1-k) };
+}
+
+function applyShock(s){
+  const L = G.L, R = s.R;
+  const reached = d => s.type === 'pull' ? s.r <= d : s.r >= d;
+  const dL = hyp(L.x-s.x, L.y-s.y);
+  if (!s.hitL && dL < R && reached(dL)){
+    s.hitL = true;
+    const v = impulse(s.type, s.x, s.y, L);
+    if (v){ L.vx += v.dvx; L.vy += v.dvy; }
+  }
+  for (const c of G.clouds){
+    if (s.hitC.has(c.id)) continue;
+    const d = hyp(c.x-s.x, c.y-s.y);
+    if (d < R && reached(d)){
+      s.hitC.add(c.id);
+      const f = 1 - d/R;
+      if (s.type === 'push'){ const m = (7*f + 1.4)*(1.2 - c.r/(130*scale)); const u = d < 8 ? [0,-1] : [(c.x-s.x)/d,(c.y-s.y)/d]; c.vx += u[0]*m; c.vy += u[1]*m; }
+      else if (s.type === 'pull'){ if (d > 4){ const m = Math.min(d*.05, 3.2*f + .5); c.vx -= (c.x-s.x)/d*m; c.vy -= (c.y-s.y)/d*m; } }
+      else { c.vx *= .15; c.vy *= .15; }
+    }
+  }
+}
+
+/* ---------- outcomes ---------- */
+function win(){
+  if (G.mode !== 'play') return;
+  G.mode = 'won'; sfx.win();
+  try { if (G.level + 1 > best){ best = G.level + 1; localStorage.setItem('driftwish-best', String(best)); } } catch(_) {}
+  const m = G.moon;
+  for (let i=0;i<7;i++) later(i*260, () => celebrate(clamp(m.x + rand(-W*.3,W*.3), 40, W-40), rand(H*.16, H*.42)));
+  later(1900, () => {
+    const left = G.shells.push + G.shells.pull + G.shells.brake;
+    const stars = Math.max(1, G.collected);
+    showCard('Wish delivered',
+      G.collected === 3 ? 'Every star gathered on the way.' : 'Stars gathered: ' + G.collected + ' of 3. Shells left over: ' + left + '.',
+      [{ label:'Next level', primary:true, fn:() => startLevel(G.level + 1) }, { label:'Replay', fn:() => startLevel(G.level) }],
+      stars);
+  });
+}
+function lose(reason){
+  if (G.mode !== 'play') return;
+  G.mode = 'lost'; G.L.out = true; G.aim = null;
+  later(1000, () => showCard(reason, 'The wish did not make it this time. The same sky is waiting.',
+    [{ label:'Try again', primary:true, fn:() => startLevel(G.level) }]));
+}
+
+/* ---------- update ---------- */
+function update(dt, rawMs){
+  G.clock += rawMs;
+  const L = G.L;
+  // wind streaks always drift
+  for (const s of G.streaks){
+    const w = windAt(s.y, G.clock/1000);
+    s.x += (w*3.4 + (w >= 0 ? .25 : -.25))*s.sp*dt;
+    if (s.x > W + 80) s.x = -80; else if (s.x < -80) s.x = W + 80;
+  }
+  if (G.mode === 'ready'){
+    L.y = water - 70 + Math.sin(G.clock/600)*3;
+    for (const c of G.clouds) c.x += Math.sin(G.clock/2000 + c.id)*.1;
+    return;
+  }
+
+  const t = G.clock/1000;
+  if (G.mode === 'play'){
+    G.t += dt/60;
+    if (G.grace > 0) G.grace -= dt;
+    L.vx += windAt(L.y,t)*.012*dt;
+    L.vy -= .02*clamp(G.flame/100,0,1)*dt;
+  } else if (G.mode === 'lost'){
+    L.vy += .06*dt;
+  }
+
+  if (G.mode === 'won'){
+    L.x += (G.moon.x - L.x)*.07*dt; L.y += (G.moon.y - L.y)*.07*dt; L.grow = Math.max(.35, L.grow - .01*dt);
+  } else {
+    const d = Math.pow(.985, dt);
+    L.vx *= d; L.vy *= d; L.x += L.vx*dt; L.y += L.vy*dt;
+    const rr = L.s*.5;
+    if (L.x < rr){ L.x = rr; L.vx = Math.abs(L.vx)*.5; }
+    if (L.x > W-rr){ L.x = W-rr; L.vx = -Math.abs(L.vx)*.5; }
+    if (L.y < 92){ L.y = 92; L.vy = Math.abs(L.vy)*.3; }
+  }
+
+  // ember trail
+  if (G.mode !== 'ready' && Math.random() < .5*dt && !L.out) spark(L.x+rand(-3,3), L.y+L.s*.7, rand(-.2,.2), rand(.1,.5), rand(20,40), 100, 62, { decay:.05, drag:.95, g:.02, size:1.4 });
+
+  // clouds
+  let inCloud = false;
+  for (let i=G.clouds.length-1;i>=0;i--){
+    const c = G.clouds[i];
+    c.vx += windAt(c.y,t)*.0045*dt;
+    const d = Math.pow(.99, dt); c.vx *= d; c.vy *= d; c.x += c.vx*dt; c.y += c.vy*dt;
+    if (c.x < -400 || c.x > W+400 || c.y < -400 || c.y > H+400){ G.clouds.splice(i,1); continue; }
+    if (G.mode === 'play' && hyp(L.x-c.x, L.y-c.y) < c.r*.9 + L.s*.4) inCloud = true;
+  }
+  if (G.mode === 'play'){
+    if (inCloud){
+      G.flame -= 36*dt/60; L.vx *= Math.pow(.99,dt);
+      if (Math.random() < .6*dt) spark(L.x+rand(-10,10), L.y+rand(-10,10), rand(-.8,.8), rand(-.8,.4), 270, 25, 30, { decay:.04, g:-.01, size:3 });
+    } else G.flame = Math.min(100, G.flame + 3*dt/60);
+    if (G.flame <= 0){ G.flame = 0; sfx.out(); lose('The flame went out'); }
+  }
+
+  // pickups, goal, water
+  if (G.mode === 'play'){
+    for (const p of G.pickups){
+      if (!p.got && hyp(L.x-p.x, L.y-p.y) < 28*scale){
+        p.got = true; G.collected++; sfx.chime();
+        for (let i=0;i<22;i++){ const a = Math.random()*TAU, sp = rand(1,3.4); spark(p.x,p.y,Math.cos(a)*sp,Math.sin(a)*sp,rand(40,52),100,70,{ decay:.04, size:2 }); }
+        addGlow(p.x,p.y,70,'rgb(255,210,120)',.35,.06);
+        syncHUD();
+      }
+    }
+    if (hyp(L.x-G.moon.x, L.y-G.moon.y) < G.moon.r + 12) win();
+    if (G.mode === 'play' && G.grace <= 0 && L.y > water - 12){
+      for (let i=0;i<24;i++) spark(L.x+rand(-8,8), water, rand(-1.6,1.6), rand(-4,-1), 200, 40, 80, { decay:.035, g:.12, size:1.6 });
+      sfx.splash(); lose('Lost in the water');
+    }
+    const total = G.shells.push + G.shells.pull + G.shells.brake;
+    if (total === 0 && !G.pending.length && !G.shocks.length){ G.outT += dt/60; if (G.outT > 7) lose('Out of shells'); } else G.outT = 0;
+    $('#flame').style.width = clamp(G.flame,0,100) + '%';
+  } else if (G.mode === 'lost' && L.y > water - 8){
+    L.y = water - 8; L.vy = 0; L.vx *= .9;
+  }
+
+  // pending shells and shock rings
+  for (let i=G.pending.length-1;i>=0;i--){
+    const p = G.pending[i]; p.t += dt/60;
+    if (p.t >= p.dur){ G.pending.splice(i,1); detonate(p); }
+  }
+  for (let i=G.shocks.length-1;i>=0;i--){
+    const s = G.shocks[i], step = s.R/21*dt;
+    if (s.type === 'pull') s.r -= step; else s.r += step;
+    if (G.mode === 'play' || G.mode === 'ready') applyShock(s);
+    if ((s.type === 'pull' && s.r <= 0) || (s.type !== 'pull' && s.r >= s.R + 8)) G.shocks.splice(i,1);
+  }
+
+  // glows and sparks
+  for (let i=G.glows.length-1;i>=0;i--){ const g = G.glows[i]; g.a -= g.decay*dt; if (g.a <= 0) G.glows.splice(i,1); }
+  for (let i=G.parts.length-1;i>=0;i--){
+    const p = G.parts[i]; p.px = p.x; p.py = p.y;
+    const d = Math.pow(p.drag, dt); p.vx *= d; p.vy = p.vy*d + p.g*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.life -= p.decay*dt;
+    if (p.life <= 0 || p.y > water){ G.parts[i] = G.parts[G.parts.length-1]; G.parts.pop(); }
+  }
+}
+
+/* ---------- drawing ---------- */
+function rgbaGlow(x,y,r,rgb,a){
+  const g = ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,`rgba(${rgb},${a})`); g.addColorStop(1,`rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(x-r,y-r,r*2,r*2);
+}
+
+function drawLantern(c, x, y, s, f, a){
+  const w = s, h = s*1.3;
+  const r1 = Math.round(80 + 175*f), g1 = Math.round(40 + 110*f), b1 = Math.round(40 + 20*f);
+  const g = c.createLinearGradient(0,y-h/2,0,y+h/2);
+  g.addColorStop(0,`rgba(${r1},${g1},${b1},${a})`);
+  g.addColorStop(.6,`rgba(${Math.round(r1*.98)},${Math.round(g1*1.3)},${Math.round(b1*1.8)},${a})`);
+  g.addColorStop(1,`rgba(${Math.round(r1*.98)},${Math.round(g1*1.5)},${Math.round(b1*3)},${a})`);
+  c.fillStyle = g; c.beginPath();
+  c.moveTo(x-w*.36,y-h/2); c.lineTo(x+w*.36,y-h/2); c.lineTo(x+w*.5,y+h/2); c.lineTo(x-w*.5,y+h/2); c.closePath(); c.fill();
+  c.strokeStyle = `rgba(110,40,0,${a*.5})`; c.lineWidth = Math.max(.8,s*.04);
+  for (let k=-1;k<=1;k++){ c.beginPath(); c.moveTo(x+k*w*.18,y-h/2); c.lineTo(x+k*w*.25,y+h/2); c.stroke(); }
+  c.fillStyle = `rgba(70,25,0,${a*.9})`;
+  c.fillRect(x-w*.38,y-h/2-s*.06,w*.76,s*.09); c.fillRect(x-w*.52,y+h/2-s*.03,w*1.04,s*.09);
+}
+
+function arrow(x0,y0,dx,dy,col){
+  const len = hyp(dx,dy); if (len < 2) return;
+  const x1 = x0+dx, y1 = y0+dy, a = Math.atan2(dy,dx), hd = 9;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.5; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-Math.cos(a-.45)*hd,y1-Math.sin(a-.45)*hd); ctx.lineTo(x1-Math.cos(a+.45)*hd,y1-Math.sin(a+.45)*hd); ctx.closePath(); ctx.fill();
+}
+
+function sparkle(x,y,r,rot){
+  ctx.beginPath();
+  for (let k=0;k<8;k++){ const a = rot + k*Math.PI/4, rr = k%2 ? r*.36 : r; ctx.lineTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr); }
+  ctx.closePath(); ctx.fill();
+}
+
+function render(){
+  const t = G.clock/1000, L = G.L;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0,0,W,H);
+  ctx.drawImage(bgc,0,0,W,H);
+
+  // wind streaks
+  ctx.lineCap = 'round'; ctx.lineWidth = 1.3;
+  for (const s of G.streaks){
+    const w = windAt(s.y,t), sgn = w >= 0 ? 1 : -1, len = s.len*(.35 + Math.min(1,Math.abs(w)*1.3));
+    ctx.strokeStyle = `rgba(190,205,255,${.07 + Math.min(.16,Math.abs(w)*.2)})`;
+    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.quadraticCurveTo(s.x - sgn*len*.5, s.y - 4, s.x - sgn*len, s.y); ctx.stroke();
+  }
+
+  // wish moon
+  const m = G.moon, pulse = Math.sin(t*3)*.5 + .5;
+  rgbaGlow(m.x,m.y,m.r*5.5,'200,210,255',.26 + pulse*.06);
+  ctx.fillStyle = '#f1efff'; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(140,150,205,.35)';
+  [[-.35,-.2,.28],[.25,.15,.2],[-.1,.4,.14],[.35,-.35,.12]].forEach(([dx,dy,k]) => { ctx.beginPath(); ctx.arc(m.x+dx*m.r,m.y+dy*m.r,k*m.r,0,TAU); ctx.fill(); });
+  ctx.strokeStyle = `rgba(255,210,122,${.35 + pulse*.35})`; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(m.x,m.y,m.r + 9 + pulse*5,0,TAU); ctx.stroke();
+
+  // star pickups
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of G.pickups){
+    if (p.got) continue;
+    rgbaGlow(p.x,p.y,34*scale,'255,205,110',.28 + Math.sin(t*4+p.ph)*.08);
+    ctx.fillStyle = '#ffe3a1'; sparkle(p.x,p.y,13*scale,t*.8+p.ph);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // clouds
+  for (const c of G.clouds){
+    for (const [dx,dy,pr] of c.puffs){
+      const g = ctx.createRadialGradient(c.x+dx,c.y+dy,pr*.1,c.x+dx,c.y+dy,pr);
+      g.addColorStop(0,'rgba(58,44,96,.95)'); g.addColorStop(.7,'rgba(38,28,72,.9)'); g.addColorStop(1,'rgba(38,28,72,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x+dx,c.y+dy,pr,0,TAU); ctx.fill();
+    }
+    const ph = (t + c.flash) % 3.6;
+    if (ph < .22){
+      ctx.globalCompositeOperation = 'lighter';
+      rgbaGlow(c.x,c.y,c.r*1.3,'170,150,255',.22*(1-ph/.22));
+      ctx.strokeStyle = `rgba(235,225,255,${.8*(1-ph/.22)})`; ctx.lineWidth = 1.6; ctx.beginPath();
+      let lx = c.x + c.puffs[0][0], ly = c.y - c.r*.2; ctx.moveTo(lx,ly);
+      for (let k=0;k<4;k++){ lx += ((c.id*7+k*5)%9 - 4)*2.4; ly += c.r*.22; ctx.lineTo(lx,ly); }
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  // glows, shock rings
+  ctx.globalCompositeOperation = 'lighter';
+  for (const g of G.glows) rgbaGlow(g.x,g.y,g.r,g.col.slice(4,-1),Math.max(0,g.a));
+  for (const s of G.shocks){
+    const T = TYPES[s.type], f = s.type === 'pull' ? s.r/s.R : 1 - s.r/s.R;
+    ctx.strokeStyle = `rgba(${T.col},${clamp(f,0,1)*.9})`; ctx.lineWidth = 3 + f*3;
+    ctx.beginPath(); ctx.arc(s.x,s.y,Math.max(1,s.r),0,TAU); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // lantern + reflection
+  const f = L.out ? .06 : clamp(G.flame/100,0,1)*.9 + .1, s = L.s*L.grow;
+  ctx.save(); ctx.beginPath(); ctx.rect(0,water,W,H-water); ctx.clip();
+  ctx.translate(0,2*water); ctx.scale(1,-1);
+  if (L.y + s < water) drawLantern(ctx,L.x,L.y,s,f,.22);
+  ctx.restore();
+  ctx.globalCompositeOperation = 'lighter';
+  rgbaGlow(L.x,L.y,s*(1.4 + 2.6*f),'255,150,60',.34*f*(.85 + .15*Math.sin(t*14)));
+  ctx.globalCompositeOperation = 'source-over';
+  drawLantern(ctx,L.x,L.y,s,f,.96);
+  ctx.globalCompositeOperation = 'lighter';
+  rgbaGlow(L.x,L.y+s*.36,s*.75,'255,235,170',.9*f*(.85 + .15*Math.sin(t*19)));
+  ctx.globalCompositeOperation = 'source-over';
+
+  // rockets
+  ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (const p of G.pending){
+    const e = 1 - Math.pow(1 - clamp(p.t/p.dur,0,1), 2), y = lerp(water, p.y, e), y0 = lerp(water, p.y, Math.max(0,e-.25));
+    ctx.strokeStyle = `rgba(${TYPES[p.type].col},.95)`; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(p.x,y0); ctx.lineTo(p.x,y); ctx.stroke();
+  }
+
+  // sparks
+  for (const p of G.parts){
+    const a = Math.pow(Math.max(p.life,0),.85), hot = p.life > .85 ? (p.life-.85)/.15 : 0;
+    ctx.strokeStyle = `hsla(${p.h},${p.s}%,${p.l + (100-p.l)*hot*.8}%,${a})`;
+    ctx.lineWidth = p.size*(.55 + .45*p.life);
+    ctx.beginPath(); ctx.moveTo(p.px,p.py); ctx.lineTo(p.x+.01,p.y); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // aim preview
+  const A = G.aim;
+  if (A && G.mode === 'play' && G.shells[G.sel] > 0){
+    const T = TYPES[G.sel], ay = Math.min(A.y, water-24), col = `rgba(${T.col},.95)`;
+    ctx.setLineDash([6,7]); ctx.lineWidth = 1.6; ctx.strokeStyle = `rgba(${T.col},.6)`;
+    ctx.beginPath(); ctx.arc(A.x,ay,G.R,0,TAU); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(A.x,ay,4,0,TAU); ctx.fill();
+    const v = impulse(G.sel, A.x, ay, L);
+    if (v){
+      if (G.sel === 'brake'){ ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(L.x,L.y,s*1.1 + Math.sin(t*10)*2,0,TAU); ctx.stroke(); }
+      else arrow(L.x, L.y, v.dvx*14, v.dvy*14, col);
+    }
+  }
+}
+
+/* ---------- loop ---------- */
+let last = performance.now();
+function frame(now){
+  if (!active) return;
+  const raw = Math.min(50, now - last); last = now;
+  update(raw/16.667, raw);
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- input ---------- */
+function pos(e){ const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+cv.addEventListener('pointerdown', e => {
+  sfx.init(); sfx.resume();
+  if (G.mode !== 'play') return;
+  if (G.shells[G.sel] <= 0){ const b = root.querySelector(`.shell[data-type="${G.sel}"]`); if (b){ b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); } return; }
+  const [x,y] = pos(e); G.aim = { x, y, down:true };
+  try { cv.setPointerCapture(e.pointerId); } catch(_) {}
+});
+cv.addEventListener('pointermove', e => {
+  const [x,y] = pos(e);
+  if (G.aim && G.aim.down){ G.aim.x = x; G.aim.y = y; }
+  else if (e.pointerType === 'mouse' && G.mode === 'play') G.aim = { x, y, down:false };
+});
+function release(){
+  const A = G.aim;
+  if (A && A.down && G.mode === 'play') fire(A.x, A.y);
+  G.aim = null;
+}
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', () => { G.aim = null; });
+cv.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && G.aim && !G.aim.down) G.aim = null; });
+
+root.querySelectorAll('.shell').forEach(b => b.addEventListener('click', () => {
+  sfx.init(); sfx.resume(); G.sel = b.dataset.type; syncHUD();
+}));
+$('#rst').addEventListener('click', () => { sfx.init(); startLevel(G.level, false); });
+$('#snd').addEventListener('click', e => { sfx.init(); sfx.resume(); sfx.on = !sfx.on; e.currentTarget.setAttribute('aria-pressed', String(sfx.on)); });
+document.addEventListener('keydown', e => {
+  if (!active) return;
+  e.stopPropagation();
+  const k = e.key.toLowerCase();
+  if (k === 'escape'){ onExit(); return; }
+  if (k === 'r'){ startLevel(G.level, false); }
+  else if (k === 'm'){ sfx.on = !sfx.on; $('#snd').setAttribute('aria-pressed', String(sfx.on)); }
+  else if (k >= '1' && k <= '3'){
+    const t = ['push','pull','brake'][Number(k)-1];
+    if (!root.querySelector(`.shell[data-type="${t}"]`).hidden){ G.sel = t; syncHUD(); }
+  }
+});
+addEventListener('resize', () => { if (active) layout(); });
+$('#exit').addEventListener('click', () => onExit());
+
+let active = false, inited = false;
+return {
+  open(){
+    active = true;
+    layout();
+    if (!inited){ inited = true; startLevel(1, true); }
+    last = performance.now();
+    requestAnimationFrame(frame);
+  },
+  close(){ active = false; }
+};
+}
+
+
+(() => {
+  const host = document.getElementById('gameHost');
+  let api = null;
+  function closeGame(){
+    if (!api) return;
+    api.close();
+    host.style.display = 'none';
+    window.__gameOpen = false;
+    if (window.__skyburst) window.__skyburst.pause(false);
+    try { if (location.hash === '#driftwish') location.hash = ''; } catch(_) {}
+  }
+  function openGame(){
+    if (!api){
+      const root = host.attachShadow({ mode:'open' });
+      root.appendChild(document.getElementById('gameTpl').content.cloneNode(true));
+      api = mountDriftwish(root, closeGame);
+    }
+    window.__gameOpen = true;
+    if (window.__skyburst) window.__skyburst.pause(true);
+    host.style.display = 'block';
+    try { if (location.hash !== '#driftwish') location.hash = 'driftwish'; } catch(_) {}
+    api.open();
+  }
+  window.__openDriftwish = openGame;
+  if (location.hash === '#driftwish') openGame();
 })();
 </script>
